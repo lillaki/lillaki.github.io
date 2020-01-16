@@ -10,9 +10,8 @@
     <div id="container"></div>
   </body>
 
-  <script src="js/three.min.js"></script>
-  <script src="js/OrbitControls.js"></script>
-
+  <!-- <script src="/build/three.min.js"></script>
+  <script type="module" src="/jsm/controls/OrbitControls.js"></script> -->
 
   <!-- VERTEX SHADER -->
   <script type="x-shader/x-vertex" id="vertexShader">
@@ -509,29 +508,59 @@
 
     void main() {
 
-      vec3 noiseColor = vec3(0.0);
+      float pupilNoise = 0.0;
+      float irisNoise = 0.0; 
 
       // Noise
-      noiseColor = vec3(psdnoise(vec2(s,t)*10.0, vec2(10.0))*.5+.5);
+      pupilNoise = psnoise(vec2(s*5.0,t*0.5)*10.0, vec2(10.0))*0.2;
+      irisNoise = psnoise(vec2(s*0.3,s)*10.0, vec2(1.))*0.3 + 0.5;
 
-      vec3 whiteColor = vec3(1., 1., 1.).rgb;
-      vec3 blackColor = vec3(0., 0., 0.).rgb;
-      vec3 irisColor = vec3(0., 0.9, 0.9).rgb;
+      vec3 whiteColor = vec3(1.0, 1.0, 1.0).rgb;
+      vec3 blackColor = vec3(0.0, 0.0, 0.0).rgb;
+      vec3 pupillaryBoundColor = vec3(1., 1., 1.).rgb;
+      vec3 irisColor = vec3(0., 1.0, 0.).rgb;
 
-      vec3 iris  = mix(irisColor*noiseColor, whiteColor, step(t, 0.8));
+      vec3 irisBoundryColor = vec3(0.0, 0., 0.).rgb; 
 
-      gl_FragColor = vec4( mix(blackColor, iris, step(t, 0.93)), 1. );
+      vec3 irisBoundry = mix(irisBoundryColor, whiteColor, smoothstep(0.78, 0.73, t));
+      vec3 irisPupillaryZone = mix(irisColor*irisNoise, irisBoundry, smoothstep(0.85, 0.74, t));
+
+      float pInner = 0.96;
+      float pOuter = 0.94;
+      float pBoundInner = 0.95;
+      float pBoundOuter = 0.94; 
+      
+      vec3 pupillaryBound  = mix(pupillaryBoundColor*pupilNoise, irisPupillaryZone, smoothstep(pBoundInner, pBoundOuter, t));
+      vec4 pupil = vec4(mix(blackColor, pupillaryBound, smoothstep(pInner, pOuter, t)), 0.5);
+
+      gl_FragColor = pupil;
     }
   </script>
+  
+  <script src="js/three.js"></script>
+  <script type="module" src="js/OrbitControls.js"></script>
 
   <!-- MAIN CODE -->
   <script type="text/javascript" id="mainCode">
 
+    //import * as THREE from './node_modules/three/build/three.module.js';
+    //import OrbitControls from './jsm//controls/OrbitControls.js';
+    //OrbitControls.install({THREE: THREE});
+
+    //var THREE = require(['./node_modules/three/build/three.module.js'])
+    //var OrbitControls = require(['./node_modules/three-orbit-controls/index.js'])(THREE)
+
+    //import * as THREE from './node_modules/three/build/three.module.js';
+    //import Stats from './node_modules/three/jsm/libs/stats.module.js';
+
+    //import { WEBGL } from './node_modules/three/examples/jsm/WebGL.js';
+    //import { OrbitControls } from './jsm//controls/OrbitControls.js';
+
      // VARIABLES
-    var container, renderer, scene, camera, controls,
+    var container, canvas, context, renderer, scene, camera, controls, geometry,
     mesh, start = Date.now(), fov = 30;
 
-    var wireframe, line, linematerial, lights, uniforms;
+    var wireframe, line, material, linematerial, lights, uniforms;
 
     // Get shaders by textContent
     var vertexShader = document.getElementById( 'vertexShader' ).textContent;
@@ -539,8 +568,12 @@
 
     container = document.getElementById( "container" );
 
+    // WEBGL 
+    canvas = document.createElement( 'canvas' );
+    context = canvas.getContext( 'webgl2', { alpha: false } );
+
     // RENDERER 
-    renderer = new THREE.WebGLRenderer({ antialias:true, aplha: true });
+    renderer = new THREE.WebGLRenderer( { canvas: canvas, context: context } );
     renderer.setSize( window.innerWidth, window.innerHeight );
     renderer.setPixelRatio( window.devicePixelRatio );
     container.appendChild( renderer.domElement );
@@ -549,6 +582,9 @@
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera(fov, window.innerWidth / window.innerHeight, 1, 10000 );
     camera.position.z = 100;
+
+    // CONTROLS
+    controls = new THREE.OrbitControls( camera, renderer.domElement );
 
     // SPHERE
     geometry = new THREE.IcosahedronGeometry( 15, 5 );
@@ -563,9 +599,6 @@
     // Mesh for debugging purposes
     mesh = new THREE.Mesh(geometry, material);
     scene.add( mesh );
-
-    // CONTROLS
-    controls = new THREE.OrbitControls( camera, renderer.domElement );
 
     // RENDER WITH THE SHADERS
     render();
