@@ -763,6 +763,7 @@ var OrbitControls = function ( object, domElement ) {
 		if ( scope.enabled === false ) return;
 
 		// Prevent the browser from scrolling.
+
 		event.preventDefault();
 
 		// Manually set the focus since calling preventDefault above
@@ -770,90 +771,119 @@ var OrbitControls = function ( object, domElement ) {
 
 		scope.domElement.focus ? scope.domElement.focus() : window.focus();
 
-		var mouseAction;
-
 		switch ( event.button ) {
 
 			case 0:
 
-				mouseAction = scope.mouseButtons.LEFT;
+				switch ( scope.mouseButtons.LEFT ) {
+
+					case MOUSE.ROTATE:
+
+						if ( event.ctrlKey || event.metaKey || event.shiftKey ) {
+
+							if ( scope.enablePan === false ) return;
+
+							handleMouseDownPan( event );
+
+							state = STATE.PAN;
+
+						} else {
+
+							if ( scope.enableRotate === false ) return;
+
+							handleMouseDownRotate( event );
+
+							state = STATE.ROTATE;
+
+						}
+
+						break;
+
+					case MOUSE.PAN:
+
+						if ( event.ctrlKey || event.metaKey || event.shiftKey ) {
+
+							if ( scope.enableRotate === false ) return;
+
+							handleMouseDownRotate( event );
+
+							state = STATE.ROTATE;
+
+						} else {
+
+							if ( scope.enablePan === false ) return;
+
+							handleMouseDownPan( event );
+
+							state = STATE.PAN;
+
+						}
+
+						break;
+
+					default:
+
+						state = STATE.NONE;
+
+				}
+
 				break;
+
 
 			case 1:
 
-				mouseAction = scope.mouseButtons.MIDDLE;
+				switch ( scope.mouseButtons.MIDDLE ) {
+
+					case MOUSE.DOLLY:
+
+						if ( scope.enableZoom === false ) return;
+
+						handleMouseDownDolly( event );
+
+						state = STATE.DOLLY;
+
+						break;
+
+
+					default:
+
+						state = STATE.NONE;
+
+				}
+
 				break;
 
 			case 2:
 
-				mouseAction = scope.mouseButtons.RIGHT;
-				break;
+				switch ( scope.mouseButtons.RIGHT ) {
 
-			default:
+					case MOUSE.ROTATE:
 
-				mouseAction = - 1;
+						if ( scope.enableRotate === false ) return;
 
-		}
+						handleMouseDownRotate( event );
 
-		switch ( mouseAction ) {
+						state = STATE.ROTATE;
 
-			case MOUSE.DOLLY:
+						break;
 
-				if ( scope.enableZoom === false ) return;
+					case MOUSE.PAN:
 
-				handleMouseDownDolly( event );
+						if ( scope.enablePan === false ) return;
 
-				state = STATE.DOLLY;
+						handleMouseDownPan( event );
 
-				break;
+						state = STATE.PAN;
 
-			case MOUSE.ROTATE:
+						break;
 
-				if ( event.ctrlKey || event.metaKey || event.shiftKey ) {
+					default:
 
-					if ( scope.enablePan === false ) return;
-
-					handleMouseDownPan( event );
-
-					state = STATE.PAN;
-
-				} else {
-
-					if ( scope.enableRotate === false ) return;
-
-					handleMouseDownRotate( event );
-
-					state = STATE.ROTATE;
+						state = STATE.NONE;
 
 				}
 
 				break;
-
-			case MOUSE.PAN:
-
-				if ( event.ctrlKey || event.metaKey || event.shiftKey ) {
-
-					if ( scope.enableRotate === false ) return;
-
-					handleMouseDownRotate( event );
-
-					state = STATE.ROTATE;
-
-				} else {
-
-					if ( scope.enablePan === false ) return;
-
-					handleMouseDownPan( event );
-
-					state = STATE.PAN;
-
-				}
-
-				break;
-
-			default:
-
-				state = STATE.NONE;
 
 		}
 
