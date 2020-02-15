@@ -13,24 +13,28 @@
   <!-- <script src="/build/three.min.js"></script>
   <script type="module" src="/jsm/controls/OrbitControls.js"></script> -->
 
+
   <!-- VERTEX SHADER -->
   <script type="x-shader/x-vertex" id="vertexShader">
-    varying vec2 vUv;
-    varying float s;
-    varying float t;
+
+    varying vec3 Normal;
+    varying vec3 Position;
+    varying vec2 uVu; 
 
     void main() {
-        vUv = uv;
-        s = uv.x;
-        t = uv.y; 
-        gl_Position = projectionMatrix * modelViewMatrix * vec4( position, 1.0 );
+      uVu = uv; 
+      Normal = normalize(normalMatrix * normal);
+      Position = vec3(modelViewMatrix * vec4(position, 1.0));
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
     }
+
   </script>
 
   <!-- FRAGMENT SHADER -->
   <script type="x-shader/x-vertex" id="fragmentShader">
 
-    //
+    // ------------------ NOISE ---------------------------- //
+
     // vec3  psrdnoise(vec2 pos, vec2 per, float rot)
     // vec3  psdnoise(vec2 pos, vec2 per)
     // float psrnoise(vec2 pos, vec2 per, float rot)
@@ -501,39 +505,148 @@
       return srnoise(pos, 0.0);
     }
 
-    varying vec2 vUv;
-    varying float s;
-    varying float t;
+    // ------------------ NOISE ---------------------------- //
+    
 
+    // Fractional Brownian motion
+    float fbm( vec2 x, vec2 p )
+    {
+        float f = 0.0;
+        float s = 0.5;
+        for( int i=0; i<9; i++ )
+        {
+            f += s*psnoise( x, p );
+            s *= 0.5;
+            x *= 2.0;
+            p *= 2.0;
+        }
+        return f;
+    }
+
+    // Lights --------------------------------------------------------------------
+    const vec3 lightDir = vec3(-2,2,.5);
+    const vec3 lightColour = vec3(1.0);
+    const vec3 fillLightDir = vec3(0,1,0);
+    const vec3 fillLightColour = vec3(.65,.7,.8)*.7;//vec3(.15,.2,.25);
+
+    // Gamma correction
+    #define GAMMA (2.2)
+
+    vec3 ToLinear( in vec3 col ){
+      // simulate a monitor, converting colour values into light values
+      return pow( col, vec3(GAMMA) );
+    }
+
+    vec3 ToGamma( in vec3 col ){
+      // convert back into colour values, so the correct light will come out of the monitor
+      return pow( col, vec3(1.0/GAMMA) );
+    }
+
+    // Lights ^^  ------------------------------------------------------------------
+
+    varying vec3 Normal;
+    varying vec3 Position;
+    uniform vec2 resolution;
+    varying vec2 uVu; 
+
+    // GUI
     uniform float pupilSize;
     uniform float irisSize;
-    uniform float irisOuterBound;
     uniform float whiteBlur;
+    uniform float spotSize;
+    uniform float spotDensity;
+    uniform float waveSize;
+    uniform float waveDensity;
+    uniform float outerCircle;
 
-    //
+    uniform bool innerColorOn;
 
-    void main() {
+    uniform vec3 innerColor;
+    uniform vec3 irisGroundColor;
+    uniform vec3 irisColor2;
+    uniform vec3 spotColor;
+    uniform vec3 lightFiber;
+    uniform vec3 darkFiber;
 
-      float pupilNoise = 0.0;
-      float irisNoise = 0.0; 
+    void main(){
 
-      // Noise
-      pupilNoise = psnoise(vec2(s*5.0,t*0.5)*10.0, vec2(10.0))*0.2;
-      irisNoise = psnoise(vec2(s*0.3,s)*10.0, vec2(1.))*0.3 + 0.5;
+      float r = sqrt(dot(uVu.y, uVu.y));
+      float a = uVu.x;
+      float outerCircle = outerCircle;
 
-      vec3 whiteColor = vec3(1.0, 1.0, 1.0).rgb;
-      vec3 blackColor = vec3(0.0, 0.0, 0.0).rgb;
-      vec3 pupillaryBoundColor = vec3(0.0, 1.0, 0.0).rgb;
-      vec3 irisColor = vec3(0.74, 0.89, 1.0).rgb; // Lightblue
+      // Colors
+      vec3 innerColor = innerColor/255.0; // Normalize color between 0-1
+      vec3 irisColor2 = irisColor2/255.0;
+      vec3 spotColor = spotColor/255.0;
+      vec3 lightFiber = lightFiber/255.0;
+      vec3 darkFiber = darkFiber/255.0; 
 
-      vec3 irisBoundryColor = vec3(1.0, 0.0, 0.0).rgb;
+      vec3 finalColor = vec3(1.0);
 
-      vec3 irisBoundry = mix(irisBoundryColor, whiteColor, smoothstep(irisOuterBound, whiteBlur, t));
-      vec3 irisPupillaryZone = mix(irisColor*irisNoise, irisBoundry, smoothstep(irisSize, irisSize - 0.07, t));
-      vec3 pupillaryBound  = mix(pupillaryBoundColor, irisPupillaryZone, smoothstep(pupilSize, pupilSize - 0.015, t));
+      // Draw the iris, r = 0 in the iris center
+      if( r < irisSize ){
 
-      gl_FragColor = vec4(pupillaryBound, 0.5);
+        // The final color of the iris (when r < 0.2)
+        finalColor = irisGroundColor/255.0; 
+
+        // Deform the angle to create waves in iris 
+        float q = a;
+        q += waveSize*fbm(vec2(0.0, waveDensity*r), vec2(1.0));
+        
+        // Mix iris colors with fbm 
+        float f = 0.5*fbm( vec2(20.0*q, r), vec2(10.0));
+        finalColor = mix(finalColor, irisColor2, f);
+
+        // Inner color
+        if( innerColorOn ){ 
+          f = 1.0 - smoothstep( pupilSize, pupilSize + 0.07, r);
+          finalColor = mix( finalColor, innerColor, f);
+        }
+
+        // Light fibers
+        // Use smoothstep to add contrast
+        f = 0.7*fbm(vec2(10.0*q, 3.5*r), vec2(10.0)) + 0.2; // Add 0.2 for brighter white
+        finalColor = mix( finalColor, lightFiber, f );
+        
+        // Dark fibers
+        // Use smoothstep to add contrast
+        f = fbm(vec2(9.0*q, 3.0*r), vec2(9.0));
+        finalColor = mix( finalColor, darkFiber, f );
+
+        // Colored Spots
+        f = 3.0*fbm( vec2(spotDensity*a, 20.0*r), vec2(spotDensity, 20.0)) + 0.3;
+        float g = fbm( vec2(spotSize*a, spotSize*r), vec2(1.0));
+        f *= g;
+        f = smoothstep(0.0, 1.0, f); 
+        finalColor = mix(finalColor, spotColor, f);
+
+        // Outer circle of iris
+        f = 1.0 - outerCircle*smoothstep( irisSize-0.1, irisSize, r );
+        finalColor *= f;  // Multiply with f to add contrast
+
+        // Pupil
+        f = smoothstep( pupilSize -0.007, pupilSize + 0.007, r );
+        finalColor *= f;
+
+        // Smoothen the iris edges
+        f = smoothstep( irisSize-0.03, irisSize, r);
+        finalColor = mix(finalColor, vec3(1.0), f);
+
+      }
+
+      // Deform the angle to create wave formation in veins 
+      a += 0.5*fbm(vec2(2.0*a, r), vec2(2.0));
+
+      // Add veins to the sclera
+      float v = 0.5*fbm(vec2(16.0*a, r), vec2(16.0));
+
+      vec3 sclera = mix(vec3( 1.0 ), vec3( 1.0, 0.0, 0.0 ), smoothstep( 0.1, 0.4, v));
+      finalColor = mix(finalColor, sclera, smoothstep(0.2, 0.5, uVu.y));
+
+      gl_FragColor = vec4( finalColor, 1.0 );
+
     }
+
   </script>
 
 
@@ -577,44 +690,72 @@
     // SPHERE
     geometry = new THREE.IcosahedronGeometry( 15, 5 );
     geometry.rotateX( Math.PI / 2 );
+    geometry.rotateY( Math.PI ); // Rotation makes it easier to code, 0 is in the middle of iris 
 
     // UNIFORMS FOR THE SHADERS
     var uniforms = THREE.UniformsUtils.merge([
-          { pupilSize: { value: 0.93 },
-            irisSize: { value: 0.86 },
-            whiteBlur: { value: 0.75 },
-            irisOuterBound: { value: 0.80 }
+          { pupilSize: { value: 0.04 },
+            irisSize: { value: 0.2 },
+            whiteBlur: { value: 0.5 },
+            spotSize: { value: 14.0 },
+            spotDensity: { value: 17.0 },
+            waveSize: { value: 0.03 },
+            waveDensity: { value: 6.0 },
+            outerCircle: { value: 0.7 },
+            innerColor: { value: new THREE.Color(148.0, 108.0, 5.0).toArray() },
+            irisGroundColor: { value: new THREE.Color(42.0, 79.0, 94.0).toArray() },
+            irisColor2: { value: new THREE.Color(137.0, 159.0, 214.0).toArray() },
+            spotColor: { value: new THREE.Color(81.0, 66.0, 14.0).toArray() },
+            lightFiber: { value: new THREE.Color(255.0, 255.0, 255.0).toArray() },
+            darkFiber: { value: new THREE.Color(0.0, 0.0, 0.0).toArray() },
+            innerColorOn: { value: Boolean(true) }
             }
       ]);
 
+
     // MATERIAL
     material = new THREE.ShaderMaterial( {
-      uniforms: uniforms, 
+      uniforms: uniforms,
       vertexShader: vertexShader,
       fragmentShader: fragmentShader,
     } );
+
+    // DAT.GUI 
+    // Creating a GUI with options.
+    var myGui = new gui.GUI({name: 'My GUI'});
+    var bFolder = myGui.addFolder('Iris details');
+    var cFolder = myGui.addFolder('Colors');
+    
+    // String controllers
+    bFolder.add(material.uniforms.pupilSize, 'value', 0.0, 0.2, 0.001).name('pupilSize');
+    bFolder.add(material.uniforms.irisSize, 'value', 0.0, 1.0, 0.001).name('irisSize');
+    bFolder.add(material.uniforms.whiteBlur, 'value', 0.0, 3.0, 0.01).name('whiteBlur');
+    bFolder.add(material.uniforms.spotSize, 'value', 0.0, 30, 0.1).name('spotSize');
+    bFolder.add(material.uniforms.spotDensity, 'value', 0.0, 30, 0.1).name('spotDensity');
+    bFolder.add(material.uniforms.waveSize, 'value', 0.0, 0.5, 0.001).name('waveSize');
+    bFolder.add(material.uniforms.waveDensity, 'value', 0.0, 30.0, 0.001).name('waveDensity');
+    bFolder.add(material.uniforms.outerCircle, 'value', 0.0, 1.5, 0.01).name('outerCircle contrast');
+
+    // Colors
+    cFolder.addColor(material.uniforms.irisGroundColor, 'value').name('Iris Ground Color');
+    cFolder.addColor(material.uniforms.irisColor2, 'value').name('Iris Color 2');
+
+    cFolder.add(material.uniforms.innerColorOn, 'value', true).name('InnerColorOn');
+    cFolder.addColor(material.uniforms.innerColor, 'value').name('Inner Color');
+    cFolder.addColor(material.uniforms.lightFiber, 'value').name('Light fiber');
+    cFolder.addColor(material.uniforms.darkFiber, 'value').name('Dark fiber');
+    cFolder.addColor(material.uniforms.spotColor, 'value').name('Spot Color');
+
 
     // Mesh for debugging purposes
     mesh = new THREE.Mesh(geometry, material);
     scene.add( mesh );
 
-    // DAT.GUI 
-    // Creating a GUI with options.
-    var myGui = new gui.GUI({name: 'My GUI'});
-    var bFolder = myGui.addFolder('Bounderies');
-    var cFolder = myGui.addFolder('Colors');
-    
-    // Add a string controller.
-    bFolder.add(material.uniforms.pupilSize, 'value', 0, 1, 0.01).name('pupilSize');
-    bFolder.add(material.uniforms.irisSize, 'value', 0, 1, 0.01).name('irisSize');
-    bFolder.add(material.uniforms.whiteBlur, 'value', 0, 1, 0.01).name('whiteBlur');
-    bFolder.add(material.uniforms.irisOuterBound, 'value', 0, 1, 0.01).name('irisOuterBound');
-
     // RENDER WITH THE SHADERS
     render();
 
     // MESH WIREFRAME
-    wireframe = new THREE.WireframeGeometry( geometry );
+    wireframe = new THREE.WireframeGeometry( geometry, material );
     linematerial = new THREE.LineBasicMaterial({
       color: 0xffffff
     }); 
@@ -625,20 +766,20 @@
     line.material.opacity = 0.25; 
     // scene.add( line );
 
-  // EVENT LISTENER
-  onWindowResize();
-  window.addEventListener( 'resize', onWindowResize, false );
+    // EVENT LISTENER
+    onWindowResize();
+    window.addEventListener( 'resize', onWindowResize, false );
 
-  function onWindowResize () {
-    renderer.setSize( window.innerWidth, window.innerHeight );
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-  }
+    function onWindowResize () {
+      renderer.setSize( window.innerWidth, window.innerHeight );
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+    }
 
-  function render() {
-    renderer.render( scene, camera );
-    requestAnimationFrame( render );
-  }
+    function render() {
+      renderer.render( scene, camera );
+      requestAnimationFrame( render );
+    }
   </script>
 
 </html>
